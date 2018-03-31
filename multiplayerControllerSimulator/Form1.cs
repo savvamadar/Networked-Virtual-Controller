@@ -20,6 +20,9 @@ namespace multiplayerControllerSimulator
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern void keybd_event(byte bVk, byte bScan, int dwFlags, int dwExtraInfo);
+
         static public vJoy joystick;
         static public vJoy.JoystickState iReport;
 
@@ -27,6 +30,7 @@ namespace multiplayerControllerSimulator
 
         bool startListening = false;
         int isLan = -1;
+        int isHost = -1;
         string input = "a";
 
         public Form1()
@@ -36,6 +40,8 @@ namespace multiplayerControllerSimulator
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            checkBox1.Enabled = false;
+            checkBox1.Visible = false;
             consoleOut("Hover over a button for more info.\n");
         }
 
@@ -95,10 +101,14 @@ namespace multiplayerControllerSimulator
             {
                 button1.Enabled = false;
                 button2.Enabled = false;
+                checkBox1.Visible = true;
+                checkBox1.Enabled = true;
                 if (i == 0)
                 {
+                    toolTip4.SetToolTip(checkBox1, "By checking this you allow the connected party to simulate pressing your actual keyboard rather than a virtual controller.");
                     if (vJoySetup())
                     {
+                        isHost = 1;
                         startNetListen();
                     }
                     else
@@ -108,6 +118,9 @@ namespace multiplayerControllerSimulator
                 }
                 else
                 {
+                    checkBox1.Text = "Send Raw Input";
+                    isHost = 0;
+                    toolTip4.SetToolTip(checkBox1, "By checking this you will be sending actual keyboard input rather than a virtual controller input.");
                     keyMapper();
                     //startNetSend();
                 }
@@ -117,6 +130,10 @@ namespace multiplayerControllerSimulator
         int port = -1;
         string IP = "";
         string localIP = "";
+
+        int keyDown = 1;
+        int keyUp = 2;
+
         private void startNetListen()
         {
             input = "";
@@ -157,26 +174,52 @@ namespace multiplayerControllerSimulator
             var udpListener = new Thread(() => {
                 UdpClient udpServer = new UdpClient(port);
                 IPEndPoint otherPC = new IPEndPoint(IPAddress.Any, port);
+                List<int> heldKeys = new List<int>();
                 bool firstConnection = false;
                 while (true)
                 {
                     byte[] receivedBytes = udpServer.Receive(ref otherPC);      // Receive the information from the client as byte array
-                    if(firstConnection == false)
+                    if(!firstConnection)
                     {
                         firstConnection = true;
                         consoleOut("Connection established!");
                         tipUpdate("Connection from: " + otherPC.Address.ToString()+":"+ otherPC.Port.ToString());
                     }
                     string clientMessage = Encoding.UTF8.GetString(receivedBytes);
-                    for (int i = 0; i < clientMessage.Length; i++)
+                    if (!rawInput)
                     {
-                        if (clientMessage[i] == '1')
+                        for (int i = 0; i < clientMessage.Length; i++)
                         {
-                            joystick.SetBtn(true, id, (uint)(i + 1));
+                            if (clientMessage[i] == '1')
+                            {
+                                joystick.SetBtn(true, id, (uint)(i + 1));
+                            }
+                            else
+                            {
+                                joystick.SetBtn(false, id, (uint)(i + 1));
+                            }
                         }
-                        else
+                    }
+                    else
+                    {
+                        List<string> keyIntStrs = clientMessage.Split(',').ToList();
+                        for(int i= heldKeys.Count-1; i>=0; i--)
                         {
-                            joystick.SetBtn(false, id, (uint)(i + 1));
+                            if (!keyIntStrs.Contains(heldKeys[i] + ""))
+                            {
+                                keybd_event((byte)heldKeys[i], 0, keyUp, 0);
+                                heldKeys.RemoveAt(i);
+                            }
+                            else
+                            {
+                                keyIntStrs.Remove(heldKeys[i] + "");
+                            }
+                        }
+                        //consoleOut("MSG: "+clientMessage);
+                        for (int i = 0; i< keyIntStrs.Count; i++)
+                        {
+                            heldKeys.Add(int.Parse(keyIntStrs[i]));
+                            keybd_event((byte)heldKeys[heldKeys.Count-1], 0, keyDown, 0);
                         }
                     }
                 }
@@ -215,17 +258,31 @@ namespace multiplayerControllerSimulator
                         string inputs = "";
                         for (int i = 0; i < mappedKeys.Length; i++)
                         {
-                            if ((GetAsyncKeyState((int)(mappedKeys[i])) & 0x8000) > 0)
+                            if (!rawInput)
                             {
-                                inputs += "1";
+                                if ((GetAsyncKeyState((int)(mappedKeys[i])) & 0x8000) > 0)
+                                {
+                                    inputs += "1";
+                                }
+                                else
+                                {
+                                    inputs += "0";
+                                }
                             }
-                            else
+                            else if ((GetAsyncKeyState((int)(mappedKeys[i])) & 0x8000) > 0)
                             {
-                                inputs += "0";
+                                inputs += (int)(mappedKeys[i]) + ",";
                             }
                         }
-                        byte[] data = Encoding.UTF8.GetBytes(inputs);
-                        udpClient.Send(data, data.Length, otherPC);
+                        if (inputs.IndexOf(",") != -1)
+                        {
+                            inputs = inputs.Substring(0, inputs.Length - 1);
+                        }
+                        if (inputs.Trim().Length != 0)
+                        {
+                            byte[] data = Encoding.UTF8.GetBytes(inputs);
+                            udpClient.Send(data, data.Length, otherPC);
+                        }
                     }
                     Thread.Sleep(10);
                 }
@@ -410,7 +467,7 @@ namespace multiplayerControllerSimulator
                                         mostSpecificKeyValue = -1;
                                     }
                                 }
-                                if (keyAdded == true)
+                                if (keyAdded)
                                 {
                                     //this is only entered if the key was not a duplicate
                                     mostSpecificKeyValue = i;
@@ -441,6 +498,37 @@ namespace multiplayerControllerSimulator
             });
             keyListener.IsBackground = true;
             keyListener.Start();
+        }
+
+        bool rawInput = false;
+        private void checkBox1_CheckedChanged(object sender, EventArgs e)
+        {
+            if (isLan == 1)
+            {
+                rawInput = checkBox1.Checked;
+                if (rawInput)
+                {
+                    if (isHost == 1)
+                    {
+                        toolTip4.SetToolTip(checkBox1, "By unchecking this you force the connected party to simulate pressing a virtual controller.");
+                    }
+                    else
+                    {
+                        toolTip4.SetToolTip(checkBox1, "By unchecking this you will simulate pressing a virtual controller.");
+                    }
+                }
+                else
+                {
+                    if (isHost == 1)
+                    {
+                        toolTip4.SetToolTip(checkBox1, "By checking this you allow the connected party to simulate pressing your actual keyboard rather than a virtual controller.");
+                    }
+                    else
+                    {
+                        toolTip4.SetToolTip(checkBox1, "By checking this you will be sending actual keyboard input rather than a virtual controller input.");
+                    }
+                }
+            }
         }
     }
 }

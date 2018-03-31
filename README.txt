@@ -32,3 +32,8 @@ YOU DID IT! Now lets double check our work!
 
 
 YOU NEED 'vJoyInterface.dll' AND 'vJoyInterfaceWrap.dll', can be found in /bin/Debug/, to compile and run it.
+
+
+What is 'Accept Raw Input' and 'Send Raw Input'?
+Some games, like the LEGO games, expect an xbox controller rather than a generic one. However they will let you map keyboard keys.
+If that is the case both parties can enable the 'Raw Input' to network literal keypresses. Doesn't work with mouse movement/ mouse presses.
