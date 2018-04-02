@@ -11,7 +11,11 @@ This program sends controller inputs either to itself, to simulate a controller 
 You will need a screensharing application like Skype/ Discord/ Twitch.
 
 Usage:
-- Install vJoy (program tested on v218)
-- Configure vJoy based on README.txt (not README.md)
+- Configure based on README.txt (not README.md)
 - Compile/ Download Realease
 - Follow instructions given by program (If you are using Hamachi, or any other tunneling service, use the IP the service gives you)
+
+Features:
+- Virtual Generic Controller
+- Virtual Xbox Controller
+- Simulated Direct Input
